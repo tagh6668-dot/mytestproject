@@ -1,0 +1,56 @@
+name: TikTok Batch Downloader
+
+on:
+  workflow_dispatch:
+
+jobs:
+  download-batch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+
+      - name: Install yt-dlp
+        run: |
+          sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
+          sudo chmod a+rx /usr/local/bin/yt-dlp
+
+      - name: Download Links and Manage Size
+        run: |
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+          
+          mkdir -p Downloads
+          rm -f log.txt
+          
+          # حذف کاراکترهای اضافی (مثل اینترهای ویندوزی) از فایل متنی
+          tr -d '\r' < links.txt > clean_links.txt
+          
+          count=0
+          while IFS= read -r link || [ -n "$link" ]; do
+            if [ -z "$link" ]; then continue; fi
+            
+            echo "📥 در حال دانلود: $link"
+            # دانلود ویدیو با yt-dlp
+            if yt-dlp -P "Downloads/" -o "%(id)s.%(ext)s" "$link"; then
+              echo "✅ موفق"
+            else
+              echo "❌ ناموفق"
+              echo "$link" >> log.txt
+            fi
+            
+            count=$((count+1))
+            
+            # مدیریت حجم: هر 20 ویدیو یک‌بار فایل‌ها روی سرور پوش می‌شوند تا ارور حجم ندهد
+            if [ $((count % 20)) -eq 0 ]; then
+              echo "📦 در حال پوش کردن بسته $count ..."
+              git add Downloads/ log.txt
+              git commit -m "Auto-commit: $count videos" || true
+              git push || true
+            fi
+          done < clean_links.txt
+          
+          # پوش کردن ویدیوهای باقی‌مانده و فایل لاگ در پایان
+          git add Downloads/ log.txt
+          git commit -m "Final batch commit" || true
+          git push || true
