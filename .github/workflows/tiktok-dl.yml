@@ -1,0 +1,54 @@
+name: Download Top 10 TikTok Videos
+on:
+  push:
+    branches:
+      - "**"
+jobs:
+  tiktok-fetch:
+    if: contains(github.event.head_commit.message, 'tiktok:')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install yt-dlp and zip
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zip
+          python3 -m pip install --upgrade pip
+          pip3 install --upgrade yt-dlp
+
+      - name: Download 10 Videos
+        run: |
+          MSG=$(git log -1 --pretty=%B)
+          URL_LINE=$(echo "$MSG" | grep -oP 'tiktok:\s*\K.*')
+          echo "Target URL: $URL_LINE"
+          
+          mkdir -p tmp_tiktok downloads
+
+          # افزودن || true برای جلوگیری از توقف اکشن در صورت خطای یک ویدیو
+          yt-dlp \
+            --playlist-end 10 \
+            --ignore-errors \
+            -o "tmp_tiktok/%(uploader)s_%(id)s.%(ext)s" \
+            "$URL_LINE" || true
+
+          if [ "$(ls -A tmp_tiktok)" ]; then
+            ARCHIVE_NAME="tiktok_top10_$(date +%Y%m%d_%H%M%S).zip"
+            zip -j "downloads/$ARCHIVE_NAME" tmp_tiktok/*
+          else
+            echo "هیچ ویدیویی دانلود نشد! احتمالا محدودیت سرور."
+            exit 0
+          fi
+          rm -rf tmp_tiktok
+
+      - name: Commit & Push to Repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add downloads/
+          git commit -m "Add 10 TikTok videos [skip ci]" || echo "Nothing to commit"
+          git push origin HEAD:${GITHUB_REF_NAME}
+          
