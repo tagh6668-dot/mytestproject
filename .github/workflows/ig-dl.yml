@@ -1,0 +1,69 @@
+name: Instagram Downloader
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  download:
+    if: startsWith(github.event.head_commit.message, 'ig:')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
+          sudo chmod a+rx /usr/local/bin/yt-dlp
+          sudo apt-get install -y zip
+
+      - name: Extract URL and Download
+        run: |
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          
+          # استخراج لینک و شناسه یکتا
+          URL=$(echo "$COMMIT_MSG" | sed -n 's/^ig: \(.*\) | TS:.*/\1/p' | tr -d '\n' | tr -d '\r')
+          TS=$(echo "$COMMIT_MSG" | sed -n 's/.* | TS:\(.*\)/\1/p' | tr -d '\n' | tr -d '\r')
+          
+          if [ -z "$TS" ]; then
+            TS=$(date +%s)
+            URL=$(echo "$COMMIT_MSG" | sed -n 's/^ig: \(.*\)/\1/p' | tr -d '\n' | tr -d '\r')
+          fi
+
+          echo "Downloading from Instagram: $URL"
+          mkdir -p tmp_ig
+          cd tmp_ig
+          
+          # پارامتر --playlist-end 10 باعث می‌شود اگر لینک پیج بود نهایتا 10 پست دانلود شود
+          yt-dlp --playlist-end 10 --ignore-errors --no-warnings -o "%(title)s_%(id)s.%(ext)s" "$URL" || true
+          cd ..
+          echo "TS=$TS" >> $GITHUB_ENV
+
+      - name: Zip files
+        id: zip_files
+        run: |
+          if [ "$(ls -A tmp_ig)" ]; then
+            mkdir -p downloads
+            ZIP_NAME="ig_download_${{ env.TS }}.zip"
+            zip -r "downloads/$ZIP_NAME" tmp_ig/*
+            echo "ZIP_CREATED=true" >> $GITHUB_ENV
+            echo "ZIP_FILE=$ZIP_NAME" >> $GITHUB_ENV
+          else
+            echo "هیچ ویدیویی دانلود نشد!"
+            echo "ZIP_CREATED=false" >> $GITHUB_ENV
+          fi
+
+      - name: Commit and Push
+        if: env.ZIP_CREATED == 'true'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git pull origin main --rebase || true
+          git add downloads/
+          git commit -m "Auto-added Instagram zip: ${{ env.ZIP_FILE }}"
+          git push origin HEAD:main
