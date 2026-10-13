@@ -1,0 +1,45 @@
+name: TikTok Profile Batch Downloader
+on:
+  workflow_dispatch:
+    inputs:
+      max_downloads:
+        description: 'تعداد ویدیوها برای هر پیج'
+        required: true
+        default: '10'
+
+jobs:
+  download-profiles:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Install yt-dlp
+        run: |
+          sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
+          sudo chmod a+rx /usr/local/bin/yt-dlp
+
+      - name: Download Profiles
+        run: |
+          rm -f profile_log.txt
+          COUNT=${{ github.event.inputs.max_downloads }}
+          
+          # دانلود ویدیوها با محدودیت تعداد برای هر پیج
+          yt-dlp -a profiles.txt \
+            --playlist-end $COUNT \
+            --max-filesize 50M \
+            -o "%(uploader)s_%(upload_date)s_%(id)s.%(ext)s" \
+            --ignore-errors \
+            --no-warnings > yt-dlp-output.txt 2>&1 || true
+
+          # ثبت لینک‌های ناموفق در لاگ
+          grep "ERROR\|Failed" yt-dlp-output.txt > profile_log.txt || true
+
+      - name: Post Checkout Repo
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          git pull --rebase
+          git add *.mp4 *.txt
+          git commit -m "auto-download: downloaded $COUNT videos per profile" || echo "No changes to commit"
+          git push
