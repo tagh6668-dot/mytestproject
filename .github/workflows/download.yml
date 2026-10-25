@@ -1,0 +1,41 @@
+name: Download from Commit & Save to Repo
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'trigger.txt'
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract URL from Commit Message
+        id: get_url
+        run: |
+          URL=$(git log -1 --pretty=%B | grep -o 'https://[^ ]*' | head -n 1)
+          echo "url=$URL" >> $GITHUB_OUTPUT
+
+      - name: Download File
+        if: steps.get_url.outputs.url != ''
+        run: |
+          mkdir -p downloads
+          cd downloads
+          curl -L -O "${{ steps.get_url.outputs.url }}"
+
+      - name: Commit and Push File
+        if: steps.get_url.outputs.url != ''
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add downloads/
+          git commit -m "Add downloaded file [skip ci]" || exit 0
+          git push origin main
